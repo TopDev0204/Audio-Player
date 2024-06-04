@@ -101,6 +101,14 @@ export default {
                 })
                 .then((data) => {
                     this.play = data;
+                    // Check if the song is already in the playedList
+                    const isInPlayedList = this.playedList.some(
+                        (song) => song.id === data.id
+                    );
+                    // If the song is not in the playedList, add it
+                    if (!isInPlayedList) {
+                        this.playedList.push(data);
+                    }
                     this.playing = data.playing;
                     this.songs = this.songs.map((s) => {
                         if (s.id === data.id) {
@@ -127,21 +135,38 @@ export default {
             if (this.playMethod) {
                 const id = this.randomPlay();
                 return this.playSong(id);
-            }
-            const idx = this.songs.findIndex(
-                (song) => song.id === this.play.id
-            );
-            if (e === "next") {
-                const nextIdx = idx === this.songs.length - 1 ? 0 : idx;
-                return this.playSong(this.songs[nextIdx + 1].id);
             } else {
-                const prevIdx = idx === 1 ? this.songs.length : idx;
-                return this.playSong(this.songs[prevIdx - 1].id);
+                const idx = this.songs.findIndex(
+                    (song) => song.id === this.play.id
+                );
+                if (e === "next") {
+                    const nextIdx = idx === this.songs.length - 1 ? 0 : idx;
+                    return this.playSong(this.songs[nextIdx + 1].id);
+                } else {
+                    const prevIdx = idx === 1 ? this.songs.length : idx;
+                    return this.playSong(this.songs[prevIdx - 1].id);
+                }
             }
         },
         randomPlay() {
-            const randomIndex = Math.floor(Math.random() * this.songs.length);
-            return this.songs[randomIndex].id;
+            // Check whether it has already been played and filter.
+            let filteredSongs = this.songs.filter((song) =>
+                !this.playedList.some((playedSong) => song.id === playedSong.id)
+            );
+            if(filteredSongs.length === 0) {
+                this.playedList = [];
+                return this.songs[0].id;
+            }
+
+            // Check whether the ID and artist of the prev played music are the same and filter.
+            const availableSongs = filteredSongs.filter(
+                (song) =>
+                    song.id !== this.play.id || song.artist !== this.play.artist
+            );
+            const randomIndex = Math.floor(
+                Math.random() * availableSongs.length
+            );
+            return availableSongs[randomIndex].id;
         },
     },
 };
@@ -209,11 +234,7 @@ export default {
                     {{ convertTimeHHMMSS(durationSeconds) }}
                 </div>
             </div>
-            <audio
-                class="none"
-                ref="audioFile"
-                :src="play.file_path"
-            ></audio>
+            <audio class="none" ref="audioFile" :src="play.file_path"></audio>
         </div>
         <div class="w-100 flex items-center justify-center text-white py-3">
             <button
