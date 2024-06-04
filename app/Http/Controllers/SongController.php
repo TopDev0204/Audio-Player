@@ -16,10 +16,13 @@ class SongController extends Controller
         return response()->json($songs);
     }
 
-    public function play($id)
+    public function playOrStop(Request $request, $id)
     {
+        $status = $request->input('status');
         $song = Song::findOrFail($id);
-        // Update the song state (playing or not)
+        $song->playing = !$status;
+        $song->save();
+
         return response()->json($song);
     }
 }

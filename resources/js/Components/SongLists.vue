@@ -3,17 +3,67 @@ export default {
     data() {
         return {
             songs: [],
+            play: {},
+            playMethod: "random",
+            audio: undefined,
+            currentSeconds: 0,
+            durationSeconds: 0,
+            buffered: 0,
+            innerLoop: false,
+            loaded: false,
+            playing: false,
         };
     },
     mounted() {
         this.fetchSongs();
+        this.audio = this.$refs.audioFile;
+        if (this.audio) {
+            console.log(this.playing)
+            this.audio.addEventListener("timeupdate", this.update);
+            this.audio.addEventListener("loadeddata", this.load);
+            this.audio.addEventListener("buffered", this.update);
+            this.audio.addEventListener("pause", () => {
+                this.playing = false;
+            });
+            this.audio.addEventListener("play", () => {
+                this.playing = true;
+            });
+        }
     },
     computed: {
         backgroundUrl() {
             return `background.png`;
         },
+        percentBuffered() {
+            return (this.buffered / this.durationSeconds) * 100;
+        },
+        percentComplete() {
+            return (this.currentSeconds / (this.durationSeconds ?? 1)) * 100;
+        },
     },
     methods: {
+        convertTimeHHMMSS(val) {
+            const hhmmss = new Date(val * 1000).toISOString().substr(11, 8);
+            return hhmmss.indexOf("00:") === 0 ? hhmmss.substr(3) : hhmmss;
+        },
+        update() {
+            this.currentSeconds = this.audio.currentTime;
+            // this.buffered = this.audio.buffered.end(0);
+        },
+        load() {
+            if (this.audio.readyState >= 2) {
+                this.loaded = true;
+                this.durationSeconds = parseInt(this.audio.duration);
+                this.playing = this.autoPlay;
+                return this.playing;
+            }
+            throw new Error("Failed to load sound file.");
+        },
+        seek(e) {
+            if (!this.loaded) return;
+            const val = e.target.value;
+            this.audio.currentTime = (val / 100) * this.audio.duration;
+        },
         fetchSongs() {
             fetch("/api/songs")
                 .then((response) => {
@@ -23,30 +73,49 @@ export default {
                     return response.json();
                 })
                 .then((data) => {
-                    console.log(data);
                     this.songs = data;
                 })
                 .catch((error) => {
                     console.error(error);
                 });
         },
-        // playSong(id) {
-        //     axios.get(`/api/songs/${id}/play`)
-        //         .then(response => {
-        //             const song = response.data;
-        //             this.songs = this.songs.map(s => {
-        //                 if (s.id === song.id) {
-        //                     s.playing = !s.playing;
-        //                 } else {
-        //                     s.playing = false;
-        //                 }
-        //                 return s;
-        //             });
-        //         })
-        //         .catch(error => {
-        //             console.error(error);
-        //         });
-        // },
+        playSong(id) {
+            fetch(`/api/songs/play_or_stop/${id}`, {
+                method: "put",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    status: this.playing,
+                }),
+            })
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error("Network response was not ok");
+                    }
+                    return response.json();
+                })
+                .then((data) => {
+                    this.play = data;
+                    this.playing = data.playing;
+                    if(data.playing) {
+                        this.audio.play();
+                    } else {
+                        this.audio.pause();
+                    }
+                    this.songs = this.songs.map((s) => {
+                        if (s.id === data.id) {
+                            s.playing = !s.playing;
+                        } else {
+                            s.playing = false;
+                        }
+                        return s;
+                    });
+                })
+                .catch((error) => {
+                    console.error(error);
+                });
+        },
     },
 };
 </script>
@@ -66,15 +135,10 @@ export default {
                 <li
                     v-for="song in songs"
                     :key="song.id"
-                    class="text-white my-1 px-2 py-1 cursor-pointer hover:border-b border-sky-400"
+                    class="text-white my-1 px-2 py-1 hover:border-b hover:border-gray-400"
+                    :class="song.id === play.id ? 'border-b border-gray-400' : ''"
                 >
                     <div class="flex items-center justify-between">
-                        <!-- <button
-                            @click="playSong(song.id)"
-                            class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2"
-                        >
-                            {{ song.playing ? 'Pause' : 'Play' }}
-                        </button> -->
                         <div>
                             <div class="text-sm font-bold">
                                 {{ song.title }}
@@ -83,30 +147,50 @@ export default {
                                 {{ song.artist }}
                             </div>
                         </div>
-                        <div class="text-xs text-gray-400">
-                            <i class="fa" :class="song.playing ? 'play' : ''">
+                        <button
+                            class="text-xs text-gray-400 border border-gray-400 p-1 rounded-full w-[25px] h-[25px] hover:text-white hover:border-white"
+                            @click="playSong(song.id)"
+                        >
+                            <i
+                                class="fa"
+                                :class="song.playing ? 'fa-stop' : 'fa-play'"
+                            >
                             </i>
-                        </div>
+                        </button>
                     </div>
                 </li>
             </ul>
         </div>
         <div class="w-100 text-center text-white">
-            <h1 class="text-lg font-extrabold">Shape of you</h1>
-            <h3 class="text-sm text-gray-400">Ed Sheeran</h3>
+            <h1 class="text-lg font-extrabold">{{ play.title }}</h1>
+            <h3 class="text-sm text-gray-400">{{ play.artist }}</h3>
         </div>
         <div class="w-80 text-center m-auto items-center my-2 text-white">
-            <input type="range" id="seekslider" value="0" />
+            <input
+                type="range"
+                id="seekslider"
+                :value="percentComplete"
+                @change="seek"
+            />
             <div class="w-100 flex items-center justify-between my-1">
-                <div class="text-xs text-gray-400 curtime">00:00</div>
-                <div class="text-xs text-gray-400 durtime">00:00</div>
+                <div class="text-xs text-gray-400 curtime">
+                    {{ convertTimeHHMMSS(currentSeconds) }}
+                </div>
+                <div class="text-xs text-gray-400 durtime">
+                    {{ convertTimeHHMMSS(durationSeconds) }}
+                </div>
             </div>
+            <audio class="none" ref="audioFile" :src="play.file_path"></audio>
         </div>
         <div class="w-100 flex items-center justify-center text-white py-3">
             <button
                 class="w-[30px] h-[30px] border border-gray-300 p-1 rounded-full mx-1"
             >
-                <i class="fa fa-random" aria-hidden="true"></i>
+                <i
+                    class="fa"
+                    :class="playMethod === 'random' ? 'fa-random' : 'fa-bars'"
+                    aria-hidden="true"
+                ></i>
             </button>
             <button
                 class="w-[30px] h-[30px] border border-gray-300 p-1 rounded-full mx-1"
@@ -115,8 +199,9 @@ export default {
             </button>
             <button
                 class="w-[60px] h-[60px] border border-gray-300 p-1 rounded-full mx-1"
+                @click="playSong(play.id)"
             >
-                <i class="fa fa-play"></i>
+                <i class="fa" :class="playing ? 'fa-stop' : 'fa-play'"></i>
             </button>
             <button
                 class="w-[30px] h-[30px] border border-gray-300 p-1 rounded-full mx-1"
@@ -140,5 +225,41 @@ export default {
 #seekslider {
     width: 100%;
     height: 3px;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+    width: 100%;
+    height: 3px;
+    cursor: pointer;
+    background: linear-gradient(
+        to right,
+        rgba(0, 125, 181, 0.6) var(--buffered-width),
+        rgba(0, 125, 181, 0.2) var(--buffered-width)
+    );
+}
+input[type="range"]::before {
+    position: absolute;
+    content: "";
+    top: 8px;
+    left: 0;
+    width: var(--seek-before-width);
+    height: 3px;
+    background-color: #007db5;
+    cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+    position: relative;
+    -webkit-appearance: none;
+    box-sizing: content-box;
+    border: 1px solid #007db5;
+    height: 15px;
+    width: 15px;
+    border-radius: 50%;
+    background-color: #fff;
+    cursor: pointer;
+    margin: -7px 0 0 0;
+}
+input[type="range"]:active::-webkit-slider-thumb {
+    transform: scale(1.2);
+    background: #007db5;
 }
 </style>

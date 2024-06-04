@@ -20,3 +20,4 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 Route::get('/songs', [SongController::class, 'get_all']);
+Route::put('/songs/play_or_stop/{id}', [SongController::class, 'playOrStop']);
