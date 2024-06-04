@@ -3,8 +3,9 @@ export default {
     data() {
         return {
             songs: [],
-            play: {},
-            playMethod: "random",
+            play: {}, // playing song
+            playedList: [], //played songs list
+            playMethod: true, //true: random, false: regular
             audio: undefined,
             currentSeconds: 0,
             durationSeconds: 0,
@@ -18,7 +19,6 @@ export default {
         this.fetchSongs();
         this.audio = this.$refs.audioFile;
         if (this.audio) {
-            console.log(this.playing)
             this.audio.addEventListener("timeupdate", this.update);
             this.audio.addEventListener("loadeddata", this.load);
             this.audio.addEventListener("buffered", this.update);
@@ -49,12 +49,16 @@ export default {
         update() {
             this.currentSeconds = this.audio.currentTime;
             // this.buffered = this.audio.buffered.end(0);
+            if (this.audio.currentTime === this.audio.duration) {
+                this.handleOtherPlay("next");
+            }
         },
         load() {
             if (this.audio.readyState >= 2) {
                 this.loaded = true;
                 this.durationSeconds = parseInt(this.audio.duration);
                 this.playing = this.autoPlay;
+                this.audio.play();
                 return this.playing;
             }
             throw new Error("Failed to load sound file.");
@@ -86,7 +90,7 @@ export default {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                    status: this.playing,
+                    currentId: this.play.id,
                 }),
             })
                 .then((response) => {
@@ -98,23 +102,46 @@ export default {
                 .then((data) => {
                     this.play = data;
                     this.playing = data.playing;
-                    if(data.playing) {
-                        this.audio.play();
-                    } else {
-                        this.audio.pause();
-                    }
                     this.songs = this.songs.map((s) => {
                         if (s.id === data.id) {
-                            s.playing = !s.playing;
+                            s.playing = data.playing;
                         } else {
                             s.playing = false;
                         }
                         return s;
                     });
+                    if (!data.playing) {
+                        this.audio.pause();
+                    } else if (data.playing && this.loaded) {
+                        this.audio.play();
+                    }
                 })
                 .catch((error) => {
                     console.error(error);
                 });
+        },
+        chnageMethod() {
+            this.playMethod = !this.playMethod;
+        },
+        handleOtherPlay(e) {
+            if (this.playMethod) {
+                const id = this.randomPlay();
+                return this.playSong(id);
+            }
+            const idx = this.songs.findIndex(
+                (song) => song.id === this.play.id
+            );
+            if (e === "next") {
+                const nextIdx = idx === this.songs.length - 1 ? 0 : idx;
+                return this.playSong(this.songs[nextIdx + 1].id);
+            } else {
+                const prevIdx = idx === 1 ? this.songs.length : idx;
+                return this.playSong(this.songs[prevIdx - 1].id);
+            }
+        },
+        randomPlay() {
+            const randomIndex = Math.floor(Math.random() * this.songs.length);
+            return this.songs[randomIndex].id;
         },
     },
 };
@@ -136,7 +163,9 @@ export default {
                     v-for="song in songs"
                     :key="song.id"
                     class="text-white my-1 px-2 py-1 hover:border-b hover:border-gray-400"
-                    :class="song.id === play.id ? 'border-b border-gray-400' : ''"
+                    :class="
+                        song.id === play.id ? 'border-b border-gray-400' : ''
+                    "
                 >
                     <div class="flex items-center justify-between">
                         <div>
@@ -180,20 +209,26 @@ export default {
                     {{ convertTimeHHMMSS(durationSeconds) }}
                 </div>
             </div>
-            <audio class="none" ref="audioFile" :src="play.file_path"></audio>
+            <audio
+                class="none"
+                ref="audioFile"
+                :src="play.file_path"
+            ></audio>
         </div>
         <div class="w-100 flex items-center justify-center text-white py-3">
             <button
                 class="w-[30px] h-[30px] border border-gray-300 p-1 rounded-full mx-1"
+                @click="chnageMethod"
             >
                 <i
                     class="fa"
-                    :class="playMethod === 'random' ? 'fa-random' : 'fa-bars'"
+                    :class="playMethod ? 'fa-random' : 'fa-bars'"
                     aria-hidden="true"
                 ></i>
             </button>
             <button
                 class="w-[30px] h-[30px] border border-gray-300 p-1 rounded-full mx-1"
+                @click="handleOtherPlay('prev')"
             >
                 <i class="fa fa-backward-step"></i>
             </button>
@@ -201,10 +236,11 @@ export default {
                 class="w-[60px] h-[60px] border border-gray-300 p-1 rounded-full mx-1"
                 @click="playSong(play.id)"
             >
-                <i class="fa" :class="playing ? 'fa-stop' : 'fa-play'"></i>
+                <i class="fa" :class="play.playing ? 'fa-stop' : 'fa-play'"></i>
             </button>
             <button
                 class="w-[30px] h-[30px] border border-gray-300 p-1 rounded-full mx-1"
+                @click="handleOtherPlay('next')"
             >
                 <i class="fa fa-forward-step"></i>
             </button>
